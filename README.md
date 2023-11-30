@@ -53,5 +53,6 @@ Copy the following into your dailynote template. Note - you **CAN** Add more con
 ![Alt Text](gifs/insert_todo_note.gif)
 
 
-
-
+## Future changes / todo
+- Directly implmenent appending to a note
+- Implement creating daily note if it does not exist
