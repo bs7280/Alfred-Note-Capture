@@ -2,6 +2,8 @@
 An [Alfred](https://www.alfredapp.com/) workflow for capturing ideas, notes, links, todos, and even browser tabs directly to your notes without context switching.
 
 ## Setup 
+Shimmering obsidian required to use the search notes command - `f <query>`
+
 Workflow configuration:
 1. Set all variables
     - vault path
