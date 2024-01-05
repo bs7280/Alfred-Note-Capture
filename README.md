@@ -37,6 +37,17 @@ Copy the following into your dailynote template. Note - you **CAN** Add more con
     - `ji` Append a bullet to `## Ideas` header
     - `jj` Append a bullet to `## Journal` header
     - `jt` Append to `## Todo` header
+- Experimental: 
+    - `nf <search query>` to search your notes for a given string. 
+        - Not well optimized
+        - Requires command 'mdfind' to be in path (future improvement will fix).
+        - Requires shimmering obsidian workflow to open note (future improvement will fix)
+    - `ns <path glob filter>:<header glob filter>` to search path and headers in notes
+        - not well optimized, reads all your notes every search.
+        - `python:datetime` will return all files with python in name and headers with datetime
+        - `code/*/snippets:##*` will return all h2+ headers in any code snippet file
+
+Experimental features may require extra setup or change in next update. Feedback or ideas are highly encouraged.
 
 ## Examples
 
@@ -54,5 +65,7 @@ Copy the following into your dailynote template. Note - you **CAN** Add more con
 
 
 ## Future changes / todo
-- Directly implmenent appending to a note
-- Implement creating daily note if it does not exist
+- Optimize note search
+- optimize note find
+- Implement open in obsidian for note find
+- support note search query with appending text to a specific place

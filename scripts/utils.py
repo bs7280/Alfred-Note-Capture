@@ -6,6 +6,21 @@ import re
 import sys
 import glob
 import fnmatch
+import subprocess
+from urllib.parse import quote
+
+## Default values
+default_daily_template = """
+## Todo
+
+## Ideas
+
+## Journal
+
+## Bookmarks
+
+## Other
+"""
 
 ## Methods
 
@@ -32,7 +47,6 @@ def write_to_path(note_path, content):
         f_daily.writelines(content)
         f_daily.close()
 
-
 def create_daily_note(vault_path, note_date: Optional[datetime.datetime]=None):
 
     if note_date is None:
@@ -43,11 +57,12 @@ def create_daily_note(vault_path, note_date: Optional[datetime.datetime]=None):
     if not os.path.exists(daily_path):
         template_location = get_daily_template(vault_path)
 
-        if template_location:
+        if template_location and os.path.exists(template_location):
             with open(template_location, 'r') as f:
                 template_text = f.read()
         else:
-            template_text = ''
+            sys.stderr.write(f"Warning - could not find daily template location: {template_location} using default daily template")
+            template_text = default_daily_template
         
         # Write to file daily_path
         write_to_path(daily_path, template_text)
@@ -58,26 +73,24 @@ def create_daily_note(vault_path, note_date: Optional[datetime.datetime]=None):
 def get_daily_template(vault_path):
     path = os.path.join(vault_path, '.obsidian/daily-notes.json')
 
-
     if not os.path.exists(path):
-        print(
+        sys.stderr.write(
             f"Warning couldn't find daily note config `daily-notes.json` file at {path}",
             file=sys.stderr)
         return None
     else:
         with open(path, 'rb') as f:
             content = json.loads(f.read())
-            f.close()
 
     if 'template' in content:
         rel_path = content['template']
         if rel_path != '':
             return os.path.join(vault_path, rel_path)
         else:
-            print('Warning, key `template` exists in dailynote config but is empty str, not using daily template')
+            sys.stderr.write('Warning, key `template` exists in dailynote config but is empty str, not using daily template')
             return None
     else:
-        print("Error, key `template` not in daily-notes.json, not using a daily template")
+        sys.stderr.write(f"Error, key `template` not in daily-notes.json file {path}, not using a daily template. Content of config: {content}")
         return None
 
 def read_daily_note(vault_path):
@@ -89,63 +102,91 @@ def read_daily_note(vault_path):
 
     return daily_content
 
-def insert_text(vault_path, header, content):
-    """
-    Python implementation of https://github.com/chrisgrieser/shimmering-obsidian/blob/main/scripts/append-to-note.js
-    """
-    daily_content = read_daily_note(vault_path)
-
+# TODO will replace this with alternative method in note_parser.py
+def find_header_pos(note_content, header_str):
+    
     # Find headers
     regex_md_header = r'^#+ .+$'
 
-    matches = [x.group() for x in re.finditer(regex_md_header, daily_content, re.M)]
+    matches = [x.group() for x in re.finditer(regex_md_header, note_content, re.M)]
 
-    if header not in matches:
-        raise ValueError(f"Could not find header `{header}`")
+    if header_str not in matches:
+        sys.stderr.write(f"Warning: Could not find header `{header_str}` in {matches}")
+        return None, None
 
     start_line = None
     end_line = None
 
-    lines = daily_content.split('\n')
+    lines = note_content.split('\n')
 
     for i, line in enumerate(lines):
         if start_line is None:
-            if line == header:
+            if line == header_str:
                 start_line = i
                 break
 
     # Last non empty
-    last_line = -1
     for i, line in enumerate(lines[start_line:]):
-        if line == header:
+        if line == header_str:
             pass
         elif line in matches:
+            #end_line = (start_line + i)
             break
         elif line != '':
-            last_line = start_line + i
+            end_line = start_line + i
 
     if start_line is None:
-        raise ValueError("Could not find already matched header")
+        raise ValueError(f"Unexpected edge case - Could not find already matched header {header_str}")
     
+    return start_line, end_line
+    
+
+def insert_text(vault_path, header, inserted_text, create_header_if_missing=False):
+    """
+    Python implementation of https://github.com/chrisgrieser/shimmering-obsidian/blob/main/scripts/append-to-note.js
+
+    Returns new text as string, does not modify the file
+    """
+    note_content = read_daily_note(vault_path)
+
+    start_line, end_line = find_header_pos(note_content, header)
+    lines = note_content.split('\n')
+
+    if start_line is None:
+        if create_header_if_missing:
+            sys.stderr.write(f"Could not find header {header} in daily note, creating it at end of note")
+
+            ## Add desired header to end of document
+            lines.insert(len(lines), header)
+            # Update header
+            start_line = len(lines)
+        else:
+            raise ValueError(f"Header {header} not found in daily note")
+
     def ensure_empty_line(line_num, lines):
         if line_num >= len(lines) or lines[line_num] != '':
             lines.insert(line_num, '')
 
-    if last_line == -1:
+    if end_line is None:
         ensure_empty_line(start_line + 1, lines)
-        lines.insert(start_line + 2, content)
+        lines.insert(start_line + 2, inserted_text)
         ensure_empty_line(start_line + 3, lines)
     else:
-        lines.insert(last_line + 1, content)
+        lines.insert(end_line + 1, inserted_text)
 
     return '\n'.join(lines)
 
-def append_to_daily_vault(vault_path, header, message):
-    new_text = insert_text(vault_path, header, message)
+def append_to_daily_vault(vault_path, header, message, create_header_if_missing=False):
+    new_text = insert_text(
+        vault_path, header, message,
+        create_header_if_missing=create_header_if_missing)
     daily_path = get_daily_note_path(vault_path)
     write_to_path(daily_path, new_text)
 
-def find_headers(filenames):
+def get_headers_index(filenames):
+    """
+    Given a list of markdown files, return dict with list of headers in each file
+    """
     pattern = r"^(#{1,6})\s(.+)$"
 
     pattern = r"^#{1,6}\s.+$"
@@ -194,7 +235,7 @@ def tree_schema(vault_path, query):
 
     # Step 0 - get index of 
     # TODO - cache this result eventually, will be slow for big vaults
-    headers_index = find_headers(glob.glob(os.path.join(vault_path, '*'), recursive=True))
+    headers_index = get_headers_index(glob.glob(os.path.join(vault_path, '*'), recursive=True))
 
     ## Step 1 - Filter out files that match fname part of glob query
     if path_q:
@@ -223,8 +264,6 @@ def tree_schema(vault_path, query):
     else:
         matches = combined_strings
 
-    #breakpoint()
-
     # match on headers
     out = []
     for match in matches:
@@ -236,16 +275,36 @@ def tree_schema(vault_path, query):
             # Joins again to handle edge case of a colon being in markdown header
             header = ':'.join(match.split(':')[1:])
 
-            dir, fname = os.path.split(match)
+            dir, fname = os.path.split(basename)
 
         out.append({
-            'title': f'{basename}:{header}' if len(header) > 1 else basename,
+            'title': f'{fname}:{header}' if len(header) > 1 else fname,
             'subtitle': fname,
-            'arg': match,
+            'arg': create_obsidian_url(
+                vault_path, fname,
+                heading=(header if len(header) > 1 else None)),
         })
 
     return out
 
+def create_obsidian_url(vault_path, relative_path, heading=None, line_num=None):
+    relative_path_enc = quote(relative_path)
+
+    vault_path = os.path.split(vault_path)[1]
+    vault_name_enc = quote(vault_path.replace("/", "/"))
+    url_scheme = f"obsidian://advanced-uri?vault={vault_name_enc}&filepath={relative_path_enc}"
+    if heading:
+        # Heading can't have # symbol
+        # https://vinzent03.github.io/obsidian-advanced-uri/actions/navigation
+        # ^ Docs
+        header = heading.replace('#', '').strip()
+        url_scheme += f"&heading={quote(header)}"
+    elif line_num:
+        url_scheme += f"&line={quote(line_num)}"
+
+
+    return url_scheme
+    #subprocess.call(['open', url_scheme])
 
 #### Run
 
@@ -272,6 +331,9 @@ if __name__ == '__main__':
         #out = tree_schema(vault_path, 'code.*.snippets*:*datetime*')
         #out = tree_schema(vault_path, 'code.*.snippets*:')
         out = tree_schema(vault_path, 'python')
+
+        breakpoint()
+        #url = create_obsidian_url(vault_path, )
 
         print(out)
 
